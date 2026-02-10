@@ -1,0 +1,4 @@
+env:
+  TARGET_PROFILE: "xiaomi_mir3p"
+  TARGET_SYSTEM: "ramips"
+  TARGET_SUBTARGET: "mt7621"
