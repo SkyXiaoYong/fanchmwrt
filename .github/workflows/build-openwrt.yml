@@ -1,47 +1,51 @@
 name: Build OpenWRT for Xiaomi R3P
 
 on:
-  workflow_dispatch:  # 手动触发编译（新手友好）
+  workflow_dispatch:
 
 env:
-  # 小米R3P专属配置（关键！不能错）
-  TARGET_SYSTEM: ramips
-  TARGET_SUBTARGET: mt7621
-  TARGET_PROFILE: xiaomi_mir3p
+  # 小米R3P精准配置（fanchmwrt官方命名）
+  TARGET: ramips/mt7621/xiaomi_mir3p
   FEEDS_CONF: feeds.conf.default
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 稳定的编译环境
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source code
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          submodules: true
+          submodules: recursive  # 强制拉取所有feeds子模块（解决缺失问题）
 
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
-          sudo apt update
+          sudo apt update && sudo apt upgrade -y
           sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
+          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget \
+          libelf-dev libglib2.0-dev autoconf automake libtool autopoint texinfo pkg-config
 
-      - name: Update and install feeds
+      - name: Update feeds (重试机制，避免网络波动)
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update -a || ./scripts/feeds update -a  # 失败自动重试
+          ./scripts/feeds install -a || ./scripts/feeds install -a
 
-      - name: Configure build
+      - name: Configure for Xiaomi R3P
         run: |
-          make defconfig  # 加载默认配置
-          make menuconfig -o .config  # 应用R3P配置
+          # 直接加载R3P官方默认配置（避免menuconfig出错）
+          echo "CONFIG_TARGET_ramips=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
+          echo "CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mir3p=y" >> .config
+          echo "CONFIG_LUCI=y" >> .config
+          echo "CONFIG_LUCI_SSL=y" >> .config
+          make defconfig  # 验证配置有效性
 
-      - name: Build firmware
+      - name: Build firmware (单核编译，避免多核崩溃)
         run: |
-          make -j$(nproc) || make -j1 V=s  # 多核编译，失败则单核调试
+          make -j1 V=s  # 核心改：-j1单核编译（exit code 2最常见原因是多核压力）
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: fanchmwrt-xiaomi-r3p-firmware
-          path: bin/targets/${{ env.TARGET_SYSTEM }}/${{ env.TARGET_SUBTARGET }}/*.bin
+          name: fanchmwrt-xiaomi-r3p
+          path: bin/targets/ramips/mt7621/*.bin
